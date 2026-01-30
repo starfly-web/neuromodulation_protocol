@@ -34,76 +34,29 @@ static esp_timer_handle_t session_end_timer = NULL;
 
 // Called when an "audio event" should occur
 static void audio_event_start(void) {
-    // TODO: start or mark audio stimulus (tone, burst, etc.)
-    // For narrowband audio, you might configure I2S / DAC here.
+    // Use hardware abstraction layer
+    audio_hw_start();
     ESP_LOGD(TAG, "Audio event START (f = %u Hz)", g_audio_freq_hz);
 }
 
 // Called when the audio event ends (if pulsed)
 static void audio_event_stop(void) {
-    // Stop I2S audio output
-    i2s_stop(I2S_NUM_0);
+    // Use hardware abstraction layer
+    audio_hw_stop();
     ESP_LOGD(TAG, "Audio event STOP");
 }
 
 // Called when a TENS burst should start
 static void tens_burst_start(void) {
-    // ESP32 PWM implementation for TENS biphasic pulses
-    static bool tens_initialized = false;
-    
-    if (!tens_initialized) {
-        // Initialize LEDC (PWM) for TENS output
-        ledc_timer_config_t ledc_timer = {
-            .speed_mode = LEDC_LOW_SPEED_MODE,
-            .duty_resolution = LEDC_TIMER_10_BIT,
-            .timer_num = LEDC_TIMER_0,
-            .freq_hz = 1000,  // 1kHz carrier frequency
-            .clk_cfg = LEDC_AUTO_CLK,
-        };
-        ledc_timer_config(&ledc_timer);
-        
-        ledc_channel_config_t ledc_channel = {
-            .gpio_num = 18,    // TENS output pin
-            .speed_mode = LEDC_LOW_SPEED_MODE,
-            .channel = LEDC_CHANNEL_0,
-            .intr_type = LEDC_INTR_DISABLE,
-            .timer_sel = LEDC_TIMER_0,
-            .duty = 0,         // Start with 0% duty
-            .hpoint = 0,
-        };
-        ledc_channel_config(&ledc_channel);
-        
-        // Configure TENS enable pin
-        gpio_config_t io_conf = {
-            .pin_bit_mask = (1ULL << 19),
-            .mode = GPIO_MODE_OUTPUT,
-            .pull_up_en = 0,
-            .pull_down_en = 0,
-            .intr_type = GPIO_INTR_DISABLE,
-        };
-        gpio_config(&io_conf);
-        
-        tens_initialized = true;
-    }
-    
-    // Enable TENS output
-    gpio_set_level(19, 1);  // Enable TENS
-    
-    // Set PWM duty for current control (0-1023 range)
-    uint32_t current_level = 512;  // 50% duty for medium current
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, current_level);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-    
+    // Use hardware abstraction layer
+    tens_hw_start_burst();
     ESP_LOGD(TAG, "TENS burst START (+%u ms)", g_tens_delay_ms);
 }
 
 // Called when a TENS burst ends (burst duration is firmware-controlled)
 static void tens_burst_stop(void) {
-    // Disable TENS output and ensure charge balance
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-    gpio_set_level(19, 0);  // Disable TENS
-    
+    // Use hardware abstraction layer
+    tens_hw_stop_burst();
     ESP_LOGD(TAG, "TENS burst STOP");
 }
 
@@ -252,13 +205,9 @@ void fault_handler(void) {
     if (session_end_timer) esp_timer_stop(session_end_timer);
     
     // Trigger hardware safety shutdown (disable outputs)
-    // Disable audio output
-    i2s_stop(I2S_NUM_0);
-    
-    // Disable TENS output and ensure zero current
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-    gpio_set_level(19, 0);  // Disable TENS enable
+    // Use hardware abstraction layer for safety shutdown
+    audio_hw_stop();  // Disable audio output
+    tens_hw_stop_burst();  // Disable TENS output and ensure zero current
     
     // Log fault details to persistent storage
     static uint32_t fault_count = 0;
